@@ -3,14 +3,14 @@ import os
 import re
 import tempfile
 import shutil
+import subprocess
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 import yt_dlp
-import subprocess
 
 # ====== НАСТРОЙКИ ======
-TOKEN = "8083958487:AAFBcJBZHMcFdgxSjVEXF5OIdkNEk1ebJUA"   # 🔴 твой токен
-COOKIES_FILE = "cookies.txt"   # 🔴 файл cookies должен лежать рядом с bot_minus.py
+TOKEN = "ТВОЙ_ТОКЕН_СЮДА"    # 🔴 ВПИШИ сюда токен
+COOKIES_FILE = "cookies.txt"  # если есть куки, файл рядом
 # =======================
 
 logging.basicConfig(
@@ -19,6 +19,7 @@ logging.basicConfig(
 )
 
 YOUTUBE_REGEX = re.compile(r'(https?://)?(www\.)?(youtube\.com|youtu\.be)/\S+')
+
 
 def cleanup_temp():
     """Удаляет временные файлы из /tmp"""
@@ -35,6 +36,7 @@ def cleanup_temp():
             except:
                 pass
 
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     match = YOUTUBE_REGEX.search(text)
@@ -46,14 +48,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         input_file = os.path.join(tmpdir, "input.mp4")
-        output_file = os.path.join(tmpdir, "minus.wav")
 
         # yt-dlp: качаем видео
         ydl_opts = {
             "outtmpl": input_file,
-            "format": "bestaudio/best",
+            "format": "bestaudio[ext=m4a]/bestaudio/best",  # универсальный выбор формата
             "noplaylist": True,
-            "extractor_args": {"youtube": {"player_client": ["web"]}},  # FIX для YouTube
         }
         if os.path.exists(COOKIES_FILE):
             ydl_opts["cookiefile"] = COOKIES_FILE
@@ -65,7 +65,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Ошибка при скачивании: {e}")
             return
 
-        # Demucs: разделяем
+        # Demucs: разделяем вокал/минус
         try:
             subprocess.run(
                 ["demucs", "--two-stems=vocals", "-o", tmpdir, input_file],
@@ -75,7 +75,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Ошибка при разделении: {e}")
             return
 
-        # ищем минус
+        # ищем минусовку
         minus_path = None
         for root, dirs, files in os.walk(tmpdir):
             for f in files:
@@ -97,11 +97,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     cleanup_temp()
 
+
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     logging.info("=== Bot started with polling ===")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
