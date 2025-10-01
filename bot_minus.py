@@ -80,22 +80,8 @@ def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("minus", handle))
 
-    # Render требует запуск через webhook
-    PORT = int(os.environ.get("PORT", 8443))
-    RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
-    if not RENDER_URL:
-        raise RuntimeError("Не найден RENDER_EXTERNAL_URL — Render сам задаёт этот env var")
-
-    webhook_url = f"{RENDER_URL}/{TOKEN}"
-
-    logger.info(f"Starting webhook at {webhook_url}")
-
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=TOKEN,
-        webhook_url=webhook_url
-    )
+    logger.info("=== Bot started with polling ===")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
