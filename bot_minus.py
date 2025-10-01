@@ -3,21 +3,27 @@ import os
 import re
 import tempfile
 import shutil
+import subprocess
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 import yt_dlp
-import subprocess
 
 # ====== НАСТРОЙКИ ======
-TOKEN = "8083958487:AAFBcJBZHMcFdgxSjVEXF5OIdkNEk1ebJUA"   # 🔴 ТВОЙ ТОКЕН
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-COOKIES_FILE = os.path.join(BASE_DIR, "cookies.txt")   # 🔴 Абсолютный путь к кукам
+TOKEN = "8083958487:AAFBcJBZHMcFdgxSjVEXF5OIdkNEk1ebJUA"   # 🔴 Твой токен
+COOKIES_FILE = "cookies.txt"   # если есть файл с куками
 # =======================
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     level=logging.INFO
 )
+
+# Проверим ffmpeg
+try:
+    out = subprocess.run(["ffmpeg", "-version"], check=True, capture_output=True, text=True)
+    logging.info("✅ FFmpeg найден:\n" + out.stdout.split("\n")[0])
+except Exception as e:
+    logging.error("❌ FFmpeg не найден: %s", e)
 
 YOUTUBE_REGEX = re.compile(r'(https?://)?(www\.)?(youtube\.com|youtu\.be)/\S+')
 
@@ -56,9 +62,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         if os.path.exists(COOKIES_FILE):
             ydl_opts["cookiefile"] = COOKIES_FILE
-            logging.info(f"Использую cookies: {COOKIES_FILE}")
-        else:
-            logging.warning("⚠️ Файл cookies.txt не найден!")
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -102,7 +105,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    logging.info("=== Bot started with polling ===")
+    logging.info("=== Bot запущен с polling ===")
     app.run_polling()
 
 if __name__ == "__main__":
