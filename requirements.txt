@@ -1,0 +1,4 @@
+aiogram==3.10.0
+yt-dlp
+demucs
+ffmpeg-python
