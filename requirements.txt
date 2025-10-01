@@ -2,5 +2,5 @@ python-telegram-bot==20.3
 yt-dlp==2024.8.6
 ffmpeg-python==0.2.0
 demucs==4.0.1
-torch==2.5.1
-torchaudio==2.5.1
+torch==2.8.0
+torchaudio==2.8.0
