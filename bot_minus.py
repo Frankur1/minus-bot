@@ -9,8 +9,8 @@ from telegram.ext import Application, MessageHandler, filters, ContextTypes
 import yt_dlp
 
 # ====== НАСТРОЙКИ ======
-TOKEN = "8083958487:AAFBcJBZHMcFdgxSjVEXF5OIdkNEk1ebJUA"    # 🔴 ВПИШИ сюда токен
-COOKIES_FILE = "cookies.txt"  # если есть куки, файл рядом
+TOKEN = "8083958487:AAFBcJBZHMcFdgxSjVEXF5OIdkNEk1ebJUA"   # 🔴 твой токен
+COOKIES_FILE = "cookies.txt"   # если хочешь использовать куки, положи файл рядом
 # =======================
 
 logging.basicConfig(
@@ -19,7 +19,6 @@ logging.basicConfig(
 )
 
 YOUTUBE_REGEX = re.compile(r'(https?://)?(www\.)?(youtube\.com|youtu\.be)/\S+')
-
 
 def cleanup_temp():
     """Удаляет временные файлы из /tmp"""
@@ -36,7 +35,6 @@ def cleanup_temp():
             except:
                 pass
 
-
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     match = YOUTUBE_REGEX.search(text)
@@ -44,15 +42,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     url = match.group(0)
-    await update.message.reply_text("⏳ Обрабатываю видео, подожди немного...")
+    await update.message.reply_text("⏳ Скачиваю и обрабатываю видео, подожди немного...")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         input_file = os.path.join(tmpdir, "input.mp4")
+        wav_file = os.path.join(tmpdir, "input.wav")
 
         # yt-dlp: качаем видео
         ydl_opts = {
             "outtmpl": input_file,
-            "format": "bestaudio[ext=m4a]/bestaudio/best",  # универсальный выбор формата
+            "format": "bestaudio/best",
             "noplaylist": True,
         }
         if os.path.exists(COOKIES_FILE):
@@ -65,17 +64,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Ошибка при скачивании: {e}")
             return
 
-        # Demucs: разделяем вокал/минус
+        # конвертируем в WAV для Demucs
         try:
             subprocess.run(
-                ["demucs", "--two-stems=vocals", "-o", tmpdir, input_file],
+                ["ffmpeg", "-y", "-i", input_file, "-ar", "44100", "-ac", "2", wav_file],
+                check=True
+            )
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка при конвертации: {e}")
+            return
+
+        # Demucs: разделяем
+        try:
+            subprocess.run(
+                ["demucs", "--two-stems=vocals", "-o", tmpdir, wav_file],
                 check=True
             )
         except Exception as e:
             await update.message.reply_text(f"❌ Ошибка при разделении: {e}")
             return
 
-        # ищем минусовку
+        # ищем минус
         minus_path = None
         for root, dirs, files in os.walk(tmpdir):
             for f in files:
@@ -97,13 +106,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     cleanup_temp()
 
-
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     logging.info("=== Bot started with polling ===")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
