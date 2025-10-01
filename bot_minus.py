@@ -1,87 +1,91 @@
-import logging
 import os
+import re
 import tempfile
+import asyncio
 import subprocess
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
-# === ЛОГИ ===
-logging.basicConfig(
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+# Токен лучше хранить в переменной окружения, но можно и напрямую
+TOKEN = os.getenv("BOT_TOKEN", "ТВОЙ_ТОКЕН_СЮДА")
 
-# === ТОКЕН ===
-TOKEN = "8083958487:AAFBcJBZHMcFdgxSjVEXF5OIdkNEk1ebJUA"
+# Путь к cookies.txt (должен лежать рядом с кодом)
+COOKIES_FILE = "www.youtube.com_cookies.txt"
 
-# === КОМАНДА /minus ===
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("❌ Используй так: /minus <ссылка на YouTube>")
-        return
+# Регулярка для поиска YouTube-ссылок
+YOUTUBE_REGEX = r"(https?://(?:www\.)?(?:youtube\.com|youtu\.be)/\S+)"
 
-    url = context.args[0]
-    msg = await update.message.reply_text("⏳ Готовлюсь...")
+async def process_youtube(url: str) -> str:
+    """Скачивает видео с YouTube, делает минус и возвращает путь к mp3"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        input_path = os.path.join(tmpdir, "input.wav")
+        output_path = os.path.join(tmpdir, "minus.mp3")
+
+        # Шаг 1. Скачиваем через yt-dlp
+        ytdlp_cmd = [
+            "yt-dlp",
+            "--no-playlist",
+            "--cookies", COOKIES_FILE,
+            "-x",
+            "--audio-format", "wav",
+            "-o", input_path,
+            url,
+        ]
+        subprocess.run(ytdlp_cmd, check=True)
+
+        # Шаг 2. Отправляем в Demucs (минус)
+        demucs_cmd = [
+            "demucs",
+            "-n", "htdemucs",
+            "-o", tmpdir,
+            input_path,
+        ]
+        subprocess.run(demucs_cmd, check=True)
+
+        # Demucs кладёт результат в подкаталог tmpdir/htdemucs/INPUT
+        # Берём "no_vocals.wav"
+        song_name = os.path.splitext(os.path.basename(input_path))[0]
+        demucs_dir = os.path.join(tmpdir, "htdemucs", song_name)
+        no_vocals = os.path.join(demucs_dir, "no_vocals.wav")
+
+        # Шаг 3. Конвертируем в mp3
+        ffmpeg_cmd = [
+            "ffmpeg", "-y",
+            "-i", no_vocals,
+            "-codec:a", "libmp3lame",
+            "-qscale:a", "2",
+            output_path,
+        ]
+        subprocess.run(ffmpeg_cmd, check=True)
+
+        return output_path
+
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    match = re.search(YOUTUBE_REGEX, text)
+    if not match:
+        return  # если это не YouTube-ссылка — игнорируем
+
+    url = match.group(1)
+    await update.message.reply_text("⏳ Обрабатываю ссылку, подожди...")
 
     try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            input_path = os.path.join(tmpdir, "input.wav")
-            output_path = os.path.join(tmpdir, "minus.mp3")
-
-            # === ШАГ 1: Скачиваем с YouTube ===
-            logger.info(f"yt-dlp start: {url}")
-            ydl_cmd = [
-                "yt-dlp",
-                "--no-playlist",
-                "--cookies", "cookies.txt",  # cookies от расширения
-                "-x", "--audio-format", "wav",
-                "-o", input_path,
-                url
-            ]
-            subprocess.run(ydl_cmd, check=True)
-            logger.info("yt-dlp done")
-
-            # === ШАГ 2: Demucs (удаляем вокал) ===
-            logger.info("Demucs start")
-            demucs_cmd = [
-                "python3", "-m", "demucs.separate",
-                "--two-stems", "vocals",
-                "-o", tmpdir,
-                input_path
-            ]
-            subprocess.run(demucs_cmd, check=True)
-            no_vocals_path = os.path.join(tmpdir, "htdemucs", "input", "no_vocals.wav")
-            logger.info("Demucs done")
-
-            # === ШАГ 3: Конвертация в mp3 ===
-            logger.info("FFmpeg start")
-            ffmpeg_cmd = [
-                "ffmpeg", "-y", "-i", no_vocals_path,
-                "-b:a", "160k",
-                output_path
-            ]
-            subprocess.run(ffmpeg_cmd, check=True)
-            logger.info("FFmpeg done")
-
-            # === ШАГ 4: Отправка файла ===
-            await update.message.reply_document(
-                document=open(output_path, "rb"),
-                filename="minus.mp3"
-            )
-            await msg.edit_text("✅ Готово!")
-
+        mp3_path = await asyncio.to_thread(process_youtube, url)
+        await update.message.reply_audio(audio=open(mp3_path, "rb"))
     except Exception as e:
-        logger.error(f"Pipeline failed: {e}", exc_info=True)
-        await msg.edit_text(f"❌ Ошибка: {e}")
+        await update.message.reply_text(f"❌ Ошибка: {e}")
 
-# === MAIN ===
+
 def main():
     app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("minus", handle))
 
-    logger.info("=== Bot started with polling ===")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Ловим все текстовые сообщения (кроме команд)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    print("=== Bot started with polling ===")
+    app.run_polling()
+
 
 if __name__ == "__main__":
     main()
