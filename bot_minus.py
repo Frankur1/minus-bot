@@ -1,119 +1,101 @@
 import logging
+import os
 import tempfile
 import subprocess
-from pathlib import Path
-import asyncio
-
 from telegram import Update
-from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes
 
-# 🔑 Твой токен
-TOKEN = "8083958487:AAFBcJBZHMcFdgxSjVEXF5OIdkNEk1ebJUA"
-
+# === ЛОГИ ===
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
-    level=logging.INFO,
+    level=logging.INFO
 )
+logger = logging.getLogger(__name__)
 
-logger = logging.getLogger("minusbot")
+# === ТОКЕН ===
+TOKEN = "8083958487:AAFBcJBZHMcFdgxSjVEXF5OIdkNEk1ebJUA"
 
-# ==== Вспомогательные функции ====
+# === КОМАНДА /minus ===
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("❌ Используй так: /minus <ссылка на YouTube>")
+        return
 
+    url = context.args[0]
+    msg = await update.message.reply_text("⏳ Готовлюсь...")
 
-async def run_cmd(cmd: list[str], cwd: Path = None):
-    """Запуск команды в subprocess + логирование"""
-    logger.info("Running command: %s", " ".join(cmd))
-    process = await asyncio.create_subprocess_exec(
-        *cmd,
-        cwd=cwd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
-    stdout, _ = await process.communicate()
-    logger.info(stdout.decode())
-    return process.returncode
-
-
-async def make_minus(url: str, msg):
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+            input_path = os.path.join(tmpdir, "input.wav")
+            output_path = os.path.join(tmpdir, "minus.mp3")
 
-            # === 1. Скачать YouTube ===
-            await msg.edit_text("🔽 Скачиваю трек с YouTube…")
-            wav_path = tmpdir / "input.wav"
-            cmd_dl = [
+            # === ШАГ 1: Скачиваем с YouTube ===
+            logger.info(f"yt-dlp start: {url}")
+            ydl_cmd = [
                 "yt-dlp",
-                "--no-playlist",  # ⚡️ важно! не тянем весь плейлист
-                "-x",
-                "--audio-format", "wav",
-                "-o", str(wav_path),
-                url,
+                "--no-playlist",
+                "--cookies", "cookies.txt",  # cookies от расширения
+                "-x", "--audio-format", "wav",
+                "-o", input_path,
+                url
             ]
-            code = await run_cmd(cmd_dl, cwd=tmpdir)
-            if code != 0 or not wav_path.exists():
-                await msg.edit_text("❌ Ошибка при скачивании")
-                return
+            subprocess.run(ydl_cmd, check=True)
+            logger.info("yt-dlp done")
 
-            # === 2. Demucs разделение ===
-            await msg.edit_text("🎙 Разделяю вокал и минус…")
-            sep_dir = tmpdir / "sep"
-            cmd_demucs = [
-                "python3.11", "-m", "demucs.separate",
+            # === ШАГ 2: Demucs (удаляем вокал) ===
+            logger.info("Demucs start")
+            demucs_cmd = [
+                "python3", "-m", "demucs.separate",
                 "--two-stems", "vocals",
-                "-o", str(sep_dir),
-                str(wav_path),
+                "-o", tmpdir,
+                input_path
             ]
-            code = await run_cmd(cmd_demucs, cwd=tmpdir)
-            if code != 0:
-                await msg.edit_text("❌ Ошибка Demucs")
-                return
+            subprocess.run(demucs_cmd, check=True)
+            no_vocals_path = os.path.join(tmpdir, "htdemucs", "input", "no_vocals.wav")
+            logger.info("Demucs done")
 
-            no_vocals = next(sep_dir.rglob("no_vocals.wav"))
-
-            # === 3. Конвертация в MP3 ===
-            await msg.edit_text("🎶 Конвертирую в MP3…")
-            mp3_path = tmpdir / "minus.mp3"
-            cmd_ffmpeg = [
-                "ffmpeg", "-y",
-                "-i", str(no_vocals),
+            # === ШАГ 3: Конвертация в mp3 ===
+            logger.info("FFmpeg start")
+            ffmpeg_cmd = [
+                "ffmpeg", "-y", "-i", no_vocals_path,
                 "-b:a", "160k",
-                str(mp3_path),
+                output_path
             ]
-            code = await run_cmd(cmd_ffmpeg, cwd=tmpdir)
-            if code != 0 or not mp3_path.exists():
-                await msg.edit_text("❌ Ошибка при конвертации в MP3")
-                return
+            subprocess.run(ffmpeg_cmd, check=True)
+            logger.info("FFmpeg done")
 
-            # === 4. Отправка файла ===
-            await msg.edit_text("📤 Отправляю минус…")
-            await msg.reply_document(document=open(mp3_path, "rb"))
-
-            await msg.edit_text("✅ Готово! Отправлен минус.")
+            # === ШАГ 4: Отправка файла ===
+            await update.message.reply_document(
+                document=open(output_path, "rb"),
+                filename="minus.mp3"
+            )
+            await msg.edit_text("✅ Готово!")
 
     except Exception as e:
-        logger.exception("Ошибка в make_minus")
+        logger.error(f"Pipeline failed: {e}", exc_info=True)
         await msg.edit_text(f"❌ Ошибка: {e}")
 
-
-# ==== Хэндлеры ====
-
-
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message:
-        return
-    text = update.message.text.strip()
-    if text.startswith("http"):
-        msg = await update.message.reply_text("Начинаю обработку…")
-        await make_minus(text, msg)
-
-
+# === MAIN ===
 def main():
     app = Application.builder().token(TOKEN).build()
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-    logger.info("=== Bot starting === minusbot v3.9 (with token)")
-    app.run_polling()
+    app.add_handler(CommandHandler("minus", handle))
 
+    # Render требует запуск через webhook
+    PORT = int(os.environ.get("PORT", 8443))
+    RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
+    if not RENDER_URL:
+        raise RuntimeError("Не найден RENDER_EXTERNAL_URL — Render сам задаёт этот env var")
+
+    webhook_url = f"{RENDER_URL}/{TOKEN}"
+
+    logger.info(f"Starting webhook at {webhook_url}")
+
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=TOKEN,
+        webhook_url=webhook_url
+    )
 
 if __name__ == "__main__":
     main()
