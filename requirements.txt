@@ -1,7 +1,7 @@
 python-telegram-bot==20.7
 yt-dlp
+ffmpeg-python
 demucs
 torch
 torchaudio
-ffmpeg-python
 
