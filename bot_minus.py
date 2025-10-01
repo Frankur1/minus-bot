@@ -1,92 +1,104 @@
-import os
 import logging
+import os
+import re
 import tempfile
-import yt_dlp
-import subprocess
+import shutil
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
+import yt_dlp
+import subprocess
 
-# Логирование
+# ====== НАСТРОЙКИ ======
+TOKEN = "8083958487:AAFBcJBZHMcFdgxSjVEXF5OIdkNEk1ebJUA"   # 🔴 ТВОЙ ТОКЕН СЮДА
+COOKIES_FILE = "cookies.txt"   # если хочешь использовать куки, положи файл рядом
+# =======================
+
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     level=logging.INFO
 )
 
-# Токен бота (Railway -> Variables -> BOT_TOKEN)
-TOKEN = os.getenv("BOT_TOKEN")
+YOUTUBE_REGEX = re.compile(r'(https?://)?(www\.)?(youtube\.com|youtu\.be)/\S+')
 
-# Куки для YouTube
-COOKIES_FILE = "cookies.txt"  # загрузи в проект
+def cleanup_temp():
+    """Удаляет временные файлы из /tmp"""
+    temp_dir = "/tmp"
+    for root, dirs, files in os.walk(temp_dir):
+        for f in files:
+            try:
+                os.remove(os.path.join(root, f))
+            except:
+                pass
+        for d in dirs:
+            try:
+                shutil.rmtree(os.path.join(root, d))
+            except:
+                pass
 
-# Обработчик сообщений (ловим ссылки на YouTube)
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
+    text = update.message.text
+    match = YOUTUBE_REGEX.search(text)
+    if not match:
+        return
 
-    if "youtube.com" not in text and "youtu.be" not in text:
-        return  # не ютуб ссылка — пропускаем
+    url = match.group(0)
+    await update.message.reply_text("⏳ Обрабатываю видео, подожди немного...")
 
-    logging.info(f"Получена ссылка: {text}")
-
-    # Создаем временную директорию
     with tempfile.TemporaryDirectory() as tmpdir:
-        video_path = os.path.join(tmpdir, "input.mp4")
-        audio_path = os.path.join(tmpdir, "vocals.wav")
+        input_file = os.path.join(tmpdir, "input.mp4")
+        output_file = os.path.join(tmpdir, "minus.wav")
 
-        # yt-dlp: качаем видео (без плейлистов, с куками)
+        # yt-dlp: качаем видео
         ydl_opts = {
+            "outtmpl": input_file,
             "format": "bestaudio/best",
-            "outtmpl": video_path,
-            "cookiefile": COOKIES_FILE,
             "noplaylist": True,
         }
+        if os.path.exists(COOKIES_FILE):
+            ydl_opts["cookiefile"] = COOKIES_FILE
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([text])
+                ydl.download([url])
         except Exception as e:
-            await update.message.reply_text(f"Ошибка при скачивании: {e}")
+            await update.message.reply_text(f"❌ Ошибка при скачивании: {e}")
             return
 
-        # Demucs (минусуем)
+        # Demucs: разделяем
         try:
-            cmd = [
-                "demucs",
-                "-n", "htdemucs",
-                "-o", tmpdir,
-                video_path
-            ]
-            subprocess.run(cmd, check=True)
-
-            # Demucs создает подпапку tmpdir/htdemucs/... берем vocals.wav
-            demucs_out = os.path.join(tmpdir, "htdemucs", "input", "vocals.wav")
-
-            if os.path.exists(demucs_out):
-                os.rename(demucs_out, audio_path)
-            else:
-                await update.message.reply_text("Не удалось найти результат Demucs")
-                return
-
+            subprocess.run(
+                ["demucs", "--two-stems=vocals", "-o", tmpdir, input_file],
+                check=True
+            )
         except Exception as e:
-            await update.message.reply_text(f"Ошибка Demucs: {e}")
+            await update.message.reply_text(f"❌ Ошибка при разделении: {e}")
             return
 
-        # Отправляем в Telegram
+        # ищем минус
+        minus_path = None
+        for root, dirs, files in os.walk(tmpdir):
+            for f in files:
+                if "no_vocals" in f and f.endswith(".wav"):
+                    minus_path = os.path.join(root, f)
+                    break
+
+        if not minus_path:
+            await update.message.reply_text("❌ Не удалось найти минусовку")
+            return
+
+        # отправляем в телегу
         try:
-            await update.message.reply_audio(audio=open(audio_path, "rb"))
+            with open(minus_path, "rb") as f:
+                await update.message.reply_audio(f, title="Минус готов 🎶")
         except Exception as e:
-            await update.message.reply_text(f"Ошибка при отправке: {e}")
+            await update.message.reply_text(f"❌ Ошибка при отправке: {e}")
             return
 
-        logging.info("Файлы очищены — tmpdir удалён автоматически.")
+    cleanup_temp()
 
-# Запуск бота
 def main():
-    if not TOKEN:
-        raise RuntimeError("Нет BOT_TOKEN — добавь его в Railway Variables")
-
     app = Application.builder().token(TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
     logging.info("=== Bot started with polling ===")
     app.run_polling()
 
