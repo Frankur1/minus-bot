@@ -3,27 +3,20 @@ import os
 import re
 import tempfile
 import shutil
-import subprocess
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 import yt_dlp
+import subprocess
 
 # ====== НАСТРОЙКИ ======
-TOKEN = "8083958487:AAFBcJBZHMcFdgxSjVEXF5OIdkNEk1ebJUA"   # 🔴 Твой токен
-COOKIES_FILE = "cookies.txt"   # если есть файл с куками
+TOKEN = "8083958487:AAFBcJBZHMcFdgxSjVEXF5OIdkNEk1ebJUA"   # 🔴 твой токен
+COOKIES_FILE = "cookies.txt"   # 🔴 файл cookies должен лежать рядом с bot_minus.py
 # =======================
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     level=logging.INFO
 )
-
-# Проверим ffmpeg
-try:
-    out = subprocess.run(["ffmpeg", "-version"], check=True, capture_output=True, text=True)
-    logging.info("✅ FFmpeg найден:\n" + out.stdout.split("\n")[0])
-except Exception as e:
-    logging.error("❌ FFmpeg не найден: %s", e)
 
 YOUTUBE_REGEX = re.compile(r'(https?://)?(www\.)?(youtube\.com|youtu\.be)/\S+')
 
@@ -53,12 +46,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         input_file = os.path.join(tmpdir, "input.mp4")
+        output_file = os.path.join(tmpdir, "minus.wav")
 
         # yt-dlp: качаем видео
         ydl_opts = {
             "outtmpl": input_file,
             "format": "bestaudio/best",
             "noplaylist": True,
+            "extractor_args": {"youtube": {"player_client": ["web"]}},  # FIX для YouTube
         }
         if os.path.exists(COOKIES_FILE):
             ydl_opts["cookiefile"] = COOKIES_FILE
@@ -105,7 +100,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    logging.info("=== Bot запущен с polling ===")
+    logging.info("=== Bot started with polling ===")
     app.run_polling()
 
 if __name__ == "__main__":
