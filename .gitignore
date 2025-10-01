@@ -1,0 +1,9 @@
+bot.log
+__pycache__/
+*.wav
+*.mp3
+*.tmp
+*.log
+*.zip
+*.mp4
+
