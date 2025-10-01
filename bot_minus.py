@@ -9,8 +9,9 @@ import yt_dlp
 import subprocess
 
 # ====== НАСТРОЙКИ ======
-TOKEN = "8083958487:AAFBcJBZHMcFdgxSjVEXF5OIdkNEk1ebJUA"   # 🔴 ТВОЙ ТОКЕН СЮДА
-COOKIES_FILE = "cookies.txt"   # если хочешь использовать куки, положи файл рядом
+TOKEN = "8083958487:AAFBcJBZHMcFdgxSjVEXF5OIdkNEk1ebJUA"   # 🔴 ТВОЙ ТОКЕН
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+COOKIES_FILE = os.path.join(BASE_DIR, "cookies.txt")   # 🔴 Абсолютный путь к кукам
 # =======================
 
 logging.basicConfig(
@@ -46,7 +47,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         input_file = os.path.join(tmpdir, "input.mp4")
-        output_file = os.path.join(tmpdir, "minus.wav")
 
         # yt-dlp: качаем видео
         ydl_opts = {
@@ -56,6 +56,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         if os.path.exists(COOKIES_FILE):
             ydl_opts["cookiefile"] = COOKIES_FILE
+            logging.info(f"Использую cookies: {COOKIES_FILE}")
+        else:
+            logging.warning("⚠️ Файл cookies.txt не найден!")
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
