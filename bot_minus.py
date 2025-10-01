@@ -9,7 +9,7 @@ from telegram.ext import Application, MessageHandler, filters, ContextTypes
 import yt_dlp
 
 # ====== НАСТРОЙКИ ======
-TOKEN = "ТВОЙ_ТОКЕН_СЮДА"    # 🔴 ВПИШИ сюда токен
+TOKEN = "8083958487:AAFBcJBZHMcFdgxSjVEXF5OIdkNEk1ebJUA"    # 🔴 ВПИШИ сюда токен
 COOKIES_FILE = "cookies.txt"  # если есть куки, файл рядом
 # =======================
 
