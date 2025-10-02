@@ -3,15 +3,15 @@ import os
 import re
 import tempfile
 import shutil
-import subprocess
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 import yt_dlp
-import imageio_ffmpeg  # 🔹 чтобы подтянуть ffmpeg бинарь
+import subprocess
 
 # ====== НАСТРОЙКИ ======
-TOKEN = "8083958487:AAFBcJBZHMcFdgxSjVEXF5OIdkNEk1ebJUA"   # 🔴 твой токен
-COOKIES_FILE = "cookies.txt"   # если хочешь использовать куки, положи файл рядом
+TOKEN = "8083958487:AAFBcJBZHMcFdgxSjVEXF5OIdkNEk1ebJUA"
+COOKIES_FILE = "cookies.txt"
+FFMPEG_PATH = "/usr/bin/ffmpeg"   # ✅ используем системный ffmpeg напрямую
 # =======================
 
 logging.basicConfig(
@@ -22,34 +22,50 @@ logging.basicConfig(
 YOUTUBE_REGEX = re.compile(r'(https?://)?(www\.)?(youtube\.com|youtu\.be)/\S+')
 
 def cleanup_temp():
-    """Удаляет временные файлы из /tmp"""
     temp_dir = "/tmp"
     for root, dirs, files in os.walk(temp_dir):
         for f in files:
-            try:
-                os.remove(os.path.join(root, f))
-            except:
-                pass
+            try: os.remove(os.path.join(root, f))
+            except: pass
         for d in dirs:
-            try:
-                shutil.rmtree(os.path.join(root, d))
-            except:
-                pass
+            try: shutil.rmtree(os.path.join(root, d))
+            except: pass
+
+def preload_models():
+    """Прогреваем Demucs, чтобы скачать модели при старте"""
+    try:
+        # создаем секундный WAV тишины
+        test_wav = "/tmp/silence.wav"
+        if not os.path.exists(test_wav):
+            import wave, struct
+            with wave.open(test_wav, 'w') as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(44100)
+                wf.writeframes(struct.pack('<h', 0) * 44100)
+
+        subprocess.run(
+            ["demucs", "-n", "mdx_extra_q", "--two-stems=vocals", "-o", "/tmp", test_wav],
+            check=True
+        )
+        print("✅ Demucs модели загружены")
+    except Exception as e:
+        print(f"⚠️ Ошибка прогрева: {e}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     match = YOUTUBE_REGEX.search(text)
-    if not match:
-        return
+    if not match: return
 
     url = match.group(0)
-    await update.message.reply_text("⏳ Обрабатываю видео, подожди немного...")
+    await update.message.reply_text("⏳ Обрабатываю видео...")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         input_file = os.path.join(tmpdir, "input.mp4")
-        wav_file = os.path.join(tmpdir, "audio.wav")
+        audio_file = os.path.join(tmpdir, "audio.wav")
+        output_file = os.path.join(tmpdir, "minus.wav")
 
-        # yt-dlp: качаем видео
+        # === 1. Скачиваем видео
         ydl_opts = {
             "outtmpl": input_file,
             "format": "bestaudio/best",
@@ -65,28 +81,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Ошибка при скачивании: {e}")
             return
 
-        # 🔹 Конвертация в WAV через ffmpeg
+        # === 2. Конвертим в WAV через системный ffmpeg
         try:
-            ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
             subprocess.run(
-                [ffmpeg_path, "-y", "-i", input_file, "-ar", "44100", "-ac", "2", wav_file],
+                [FFMPEG_PATH, "-i", input_file, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", audio_file],
                 check=True
             )
         except Exception as e:
             await update.message.reply_text(f"❌ Ошибка при конвертации: {e}")
             return
 
-        # 🔹 Demucs с фиксированной моделью и ffmpeg-бэкендом
+        # === 3. Прогоняем через Demucs
         try:
             subprocess.run(
-                ["demucs", "-n", "mdx_extra_q", "--two-stems=vocals", "-o", tmpdir, wav_file],
+                ["demucs", "-n", "mdx_extra_q", "--two-stems=vocals", "-o", tmpdir, audio_file],
                 check=True
             )
         except Exception as e:
             await update.message.reply_text(f"❌ Ошибка при разделении: {e}")
             return
 
-        # ищем минус
+        # === 4. Ищем минус
         minus_path = None
         for root, dirs, files in os.walk(tmpdir):
             for f in files:
@@ -95,13 +110,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     break
 
         if not minus_path:
-            await update.message.reply_text("❌ Не удалось найти минусовку")
+            await update.message.reply_text("❌ Не удалось найти минус")
             return
 
-        # отправляем в телегу
+        # === 5. Отправляем в Telegram
         try:
             with open(minus_path, "rb") as f:
-                await update.message.reply_audio(f, title="Минус готов 🎶")
+                await update.message.reply_audio(f, title="Минус 🎶")
         except Exception as e:
             await update.message.reply_text(f"❌ Ошибка при отправке: {e}")
             return
@@ -109,9 +124,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cleanup_temp()
 
 def main():
+    preload_models()  # ✅ прогрев при старте
     app = Application.builder().token(TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    logging.info("=== Bot started with polling ===")
+    logging.info("=== Bot started ===")
     app.run_polling()
 
 if __name__ == "__main__":
