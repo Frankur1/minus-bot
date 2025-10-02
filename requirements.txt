@@ -4,3 +4,4 @@ ffmpeg-python
 demucs==4.0.1
 torch==2.8.0
 torchaudio==2.8.0
+imageio-ffmpeg

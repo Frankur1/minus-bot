@@ -7,6 +7,7 @@ import subprocess
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 import yt_dlp
+import imageio_ffmpeg  # 🔹 чтобы подтянуть ffmpeg бинарь
 
 # ====== НАСТРОЙКИ ======
 TOKEN = "8083958487:AAFBcJBZHMcFdgxSjVEXF5OIdkNEk1ebJUA"   # 🔴 твой токен
@@ -42,11 +43,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     url = match.group(0)
-    await update.message.reply_text("⏳ Скачиваю и обрабатываю видео, подожди немного...")
+    await update.message.reply_text("⏳ Обрабатываю видео, подожди немного...")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         input_file = os.path.join(tmpdir, "input.mp4")
-        wav_file = os.path.join(tmpdir, "input.wav")
+        wav_file = os.path.join(tmpdir, "audio.wav")
 
         # yt-dlp: качаем видео
         ydl_opts = {
@@ -64,17 +65,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Ошибка при скачивании: {e}")
             return
 
-        # конвертируем в WAV для Demucs
+        # 🔹 Конвертация в WAV через imageio-ffmpeg
         try:
+            ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
             subprocess.run(
-                ["ffmpeg", "-y", "-i", input_file, "-ar", "44100", "-ac", "2", wav_file],
+                [ffmpeg_path, "-y", "-i", input_file, "-ar", "44100", "-ac", "2", wav_file],
                 check=True
             )
         except Exception as e:
             await update.message.reply_text(f"❌ Ошибка при конвертации: {e}")
             return
 
-        # Demucs: разделяем
+        # Demucs: разделяем вокал/минус
         try:
             subprocess.run(
                 ["demucs", "--two-stems=vocals", "-o", tmpdir, wav_file],
