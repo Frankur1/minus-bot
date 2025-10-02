@@ -65,7 +65,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Ошибка при скачивании: {e}")
             return
 
-        # 🔹 Конвертация в WAV через imageio-ffmpeg
+        # 🔹 Конвертация в WAV через ffmpeg
         try:
             ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
             subprocess.run(
@@ -76,10 +76,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Ошибка при конвертации: {e}")
             return
 
-        # Demucs: разделяем вокал/минус
+        # 🔹 Demucs с фиксированной моделью и ffmpeg-бэкендом
         try:
             subprocess.run(
-                ["demucs", "--two-stems=vocals", "-o", tmpdir, wav_file],
+                ["demucs", "-n", "mdx_extra_q", "--two-stems=vocals", "-o", tmpdir, wav_file],
                 check=True
             )
         except Exception as e:
