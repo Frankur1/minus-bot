@@ -1,8 +1,8 @@
 [phases.setup]
-nixPkgs = ["ffmpeg", "git"]
+nixPkgs = ["python313", "ffmpeg", "git", "wget"]
 
 [phases.install]
-cmds = ["pip install -r requirements.txt"]
+cmds = ["pip install --upgrade pip", "pip install -r requirements.txt"]
 
 [start]
 cmd = "python bot_minus.py"
