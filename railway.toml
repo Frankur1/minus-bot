@@ -1,5 +1,8 @@
-[build]
-builder = "NIXPACKS"
+[phases.setup]
+nixPkgs = ["ffmpeg", "git"]
 
-[deploy]
-startCommand = "python bot_minus.py"
+[phases.install]
+cmds = ["pip install -r requirements.txt"]
+
+[start]
+cmd = "python bot_minus.py"

@@ -3,5 +3,5 @@ yt-dlp
 ffmpeg-python
 demucs
 torch==2.5.1
-torchaudio==2.6.0
+torchaudio==2.5.0
 diffq
