@@ -9,8 +9,8 @@ from telegram.ext import Application, MessageHandler, filters, ContextTypes
 import yt_dlp
 
 # ====== НАСТРОЙКИ ======
-TOKEN = "ТВОЙ_ТОКЕН"   # Впиши сюда токен напрямую
-COOKIES_FILE = "cookies.txt"
+TOKEN = "8083958487:AAFBcJBZHMcFdgxSjVEXF5OIdkNEk1ebJUA"   # 🔴 ТВОЙ ТОКЕН ВПИСАН ПРЯМО
+COOKIES_FILE = "cookies.txt"   # если хочешь использовать куки, положи файл рядом
 # =======================
 
 logging.basicConfig(
@@ -42,13 +42,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     url = match.group(0)
-    await update.message.reply_text("⏳ Скачиваю видео...")
+    await update.message.reply_text("⏳ Обрабатываю видео, подожди немного...")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         input_file = os.path.join(tmpdir, "input.mp4")
         audio_file = os.path.join(tmpdir, "audio.wav")
 
-        # yt-dlp
+        # yt-dlp: качаем аудио
         ydl_opts = {
             "outtmpl": input_file,
             "format": "bestaudio/best",
@@ -64,7 +64,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Ошибка при скачивании: {e}")
             return
 
-        # ffmpeg → wav
+        # ffmpeg: конвертируем в WAV
         try:
             subprocess.run(
                 ["ffmpeg", "-y", "-i", input_file, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", audio_file],
@@ -74,9 +74,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Ошибка при конвертации: {e}")
             return
 
-        await update.message.reply_text("🎶 Запускаю Demucs...")
-
-        # Demucs
+        # Demucs: разделяем
         try:
             subprocess.run(
                 ["demucs", "--two-stems=vocals", "-n", "mdx_extra_q", "-o", tmpdir, audio_file],
@@ -86,6 +84,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Ошибка при разделении: {e}")
             return
 
+        # ищем минус
         minus_path = None
         for root, dirs, files in os.walk(tmpdir):
             for f in files:
@@ -97,6 +96,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Не удалось найти минусовку")
             return
 
+        # отправляем в телегу
         try:
             with open(minus_path, "rb") as f:
                 await update.message.reply_audio(f, title="Минус готов 🎶")
