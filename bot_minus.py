@@ -10,13 +10,9 @@ from telegram.ext import Application, MessageHandler, filters, ContextTypes
 import yt_dlp
 
 # ====== НАСТРОЙКИ ======
-TOKEN = "8083958487:AAFBcJBZHMcFdgxSjVEXF5OIdkNEk1ebJUA"   # 🔴 твой токен
-COOKIES_FILE = "cookies.txt"   # если есть cookies.txt — будет использован
+TOKEN = "ТОКЕН_СЮДА"   # ВПИШИ СВОЙ
+COOKIES_FILE = "cookies.txt"   # если есть — используем
 # =======================
-
-# Фикс ffmpeg под Railway (часто кладётся не в /usr/bin, а в /usr/local/bin)
-if not shutil.which("ffmpeg"):
-    os.environ["PATH"] += os.pathsep + "/usr/local/bin"
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -24,6 +20,7 @@ logging.basicConfig(
 )
 
 YOUTUBE_REGEX = re.compile(r'(https?://)?(www\.)?(youtube\.com|youtu\.be)/\S+')
+
 
 def cleanup_temp():
     """Удаляет временные файлы из /tmp"""
@@ -40,6 +37,7 @@ def cleanup_temp():
             except:
                 pass
 
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     match = YOUTUBE_REGEX.search(text)
@@ -52,8 +50,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with tempfile.TemporaryDirectory() as tmpdir:
         input_file = os.path.join(tmpdir, "input.mp4")
         audio_file = os.path.join(tmpdir, "audio.wav")
+        minus_path = os.path.join(tmpdir, "minus.wav")
 
-        # yt-dlp: качаем только аудио
+        # ==== СКАЧИВАНИЕ через yt-dlp ====
         ydl_opts = {
             "outtmpl": input_file,
             "format": "bestaudio/best",
@@ -69,57 +68,64 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Ошибка при скачивании: {e}")
             return
 
-        # конвертим в WAV через ffmpeg
+        # ==== КОНВЕРТАЦИЯ В WAV ====
         await update.message.reply_text("🎵 Конвертирую в WAV...")
+        ffmpeg_path = shutil.which("ffmpeg")
+        if not ffmpeg_path:
+            await update.message.reply_text("❌ ffmpeg не найден на сервере!")
+            return
+
         try:
             subprocess.run(
-                ["ffmpeg", "-y", "-i", input_file, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", audio_file],
+                [ffmpeg_path, "-y", "-i", input_file, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", audio_file],
                 check=True
             )
         except Exception as e:
             await update.message.reply_text(f"❌ Ошибка при конвертации: {e}")
             return
 
-        # Demucs: разделяем
-        await update.message.reply_text("🎤 Убираю вокал...")
+        # ==== Demucs ====
+        await update.message.reply_text("🎤 Отделяю вокал (Demucs)...")
         try:
             subprocess.run(
-                ["demucs", "-n", "mdx_extra_q", "--two-stems=vocals", "-o", tmpdir, audio_file],
-                check=True,
-                env={**os.environ, "PATH": os.environ["PATH"] + ":/usr/local/bin"}
+                ["demucs", "--two-stems=vocals", "-o", tmpdir, audio_file],
+                check=True
             )
         except Exception as e:
             await update.message.reply_text(f"❌ Ошибка при разделении: {e}")
             return
 
-        # ищем минус
-        minus_path = None
+        # ==== ИЩЕМ минус ====
+        real_minus = None
         for root, dirs, files in os.walk(tmpdir):
             for f in files:
                 if "no_vocals" in f and f.endswith(".wav"):
-                    minus_path = os.path.join(root, f)
+                    real_minus = os.path.join(root, f)
                     break
 
-        if not minus_path:
+        if not real_minus:
             await update.message.reply_text("❌ Не удалось найти минусовку")
             return
 
-        # отправляем в телегу
-        await update.message.reply_text("📤 Отправляю результат...")
+        # ==== ОТПРАВКА В TG ====
         try:
-            with open(minus_path, "rb") as f:
+            with open(real_minus, "rb") as f:
                 await update.message.reply_audio(f, title="Минус готов 🎶")
         except Exception as e:
             await update.message.reply_text(f"❌ Ошибка при отправке: {e}")
             return
 
+    # ==== Чистим мусор ====
     cleanup_temp()
+    await update.message.reply_text("✅ Всё готово! Временные файлы очищены.")
+
 
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     logging.info("=== Bot started with polling ===")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
