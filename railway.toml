@@ -1,6 +1,0 @@
-[build]
-builder = "NIXPACKS"
-nixpacksVersion = "1.16.0"
-
-[deploy]
-startCommand = "python bot_minus.py"
