@@ -1,7 +1,7 @@
 python-telegram-bot==20.3
 yt-dlp
 ffmpeg-python
-demucs
-torch==2.5.1
+demucs==4.0.1
+torch==2.6.0
 torchaudio==2.6.0
 diffq
