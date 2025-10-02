@@ -1,8 +1,5 @@
-[phases.setup]
-nixPkgs = ["ffmpeg", "git"]
+[build]
+builder = "Nixpacks"
 
-[phases.install]
-cmds = ["pip install -r requirements.txt"]
-
-[start]
-cmd = "python bot_minus.py"
+[variables]
+PYTHON_VERSION = "3.10"
