@@ -1,5 +1,5 @@
 [phases.setup]
-nixPkgs = ["python313", "ffmpeg", "git", "wget"]
+nixPkgs = ["python311", "ffmpeg", "git", "wget"]
 
 [phases.install]
 cmds = ["pip install --upgrade pip", "pip install -r requirements.txt"]
